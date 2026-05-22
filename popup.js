@@ -1,5 +1,5 @@
-const ANSWERS_KEY = "answermate_answers_v1";
-const SETTINGS_KEY = "answermate_settings_v1";
+const ANSWERS_KEY = "formly_answers_v1";
+const SETTINGS_KEY = "formly_settings_v1";
 const DEFAULT_SETTINGS = { enabled: true, askBeforeAutofill: true };
 let currentSettings = { ...DEFAULT_SETTINGS };
 

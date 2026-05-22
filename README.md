@@ -1,19 +1,21 @@
-# AnswerMate v0.6.0
+# Formly v0.7.0
 
-Final refreshed build with your selected logo and a redesigned modern manage page.
+Type once. Chill later.
 
-## What's new
+Formly saves repeated form answers and helps fill them next time, because retyping is exhausting.
 
-- Updated AnswerMate icon/logo with the selected dark purple document mark.
-- Modern manage page with improved accordion cards.
-- Search bar for sites and questions.
-- Expand all / collapse all.
-- Reveal and copy still protected by local AnswerMate PIN.
+## What's included
+
+- Formly branding everywhere.
+- Same dark orange modern UI.
+- Modern manage page.
+- Search, expand/collapse, reveal, copy, and delete.
+- Reveal and copy are protected by a local Formly PIN.
 
 ## Install
 
-1. Unzip the file.
+1. Unzip this file.
 2. Open `chrome://extensions`.
 3. Turn on **Developer mode**.
 4. Click **Load unpacked**.
-5. Select the inner `answermate-extension` folder.
+5. Select the inner `formly-extension` folder.

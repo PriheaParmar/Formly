@@ -1,5 +1,5 @@
-const ANSWERS_KEY = "answermate_answers_v1";
-const SECURITY_KEY = "answermate_security_v1";
+const ANSWERS_KEY = "formly_answers_v1";
+const SECURITY_KEY = "formly_security_v1";
 
 // --- SVG Icons ---
 const EYE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
@@ -8,19 +8,12 @@ const COPY_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 const CHECK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
 const DELETE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
 const CHEVRON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`;
-const EXPAND_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5C3.9 3 3 3.9 3 5V8"/><path d="M16 3H19C20.1 3 21 3.9 21 5V8"/><path d="M8 21H5C3.9 21 3 20.1 3 19V16"/><path d="M16 21H19C20.1 21 21 20.1 21 19V16"/><path d="M9 9L3.8 3.8"/><path d="M15 9L20.2 3.8"/><path d="M9 15L3.8 20.2"/><path d="M15 15L20.2 20.2"/></svg>`;
-const COLLAPSE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14H10V20"/><path d="M20 10H14V4"/><path d="M14 10L21 3"/><path d="M10 14L3 21"/></svg>`;
 
 let unlockUntil = 0;
 let modalResolve = null;
 let expandedHosts = new Set();
 let currentQuery = "";
 let expandAllMode = false;
-
-const PIN_UNLOCK_MS = 2 * 60 * 1000;
-const PIN_PBKDF2_ITERATIONS = 210000;
-const PIN_MAX_ATTEMPTS = 4;
-const PIN_LOCK_MS = 30 * 1000;
 
 function storageGet(keys) {
   return new Promise((resolve) => chrome.storage.local.get(keys, (result) => resolve(result || {})));
@@ -48,106 +41,10 @@ async function saveSecurity(security) {
   await storageSet({ [SECURITY_KEY]: security });
 }
 
-function bytesToBase64(bytes) {
-  return btoa(String.fromCharCode(...new Uint8Array(bytes)));
-}
-
-function base64ToBytes(value) {
-  return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
-}
-
-function randomBase64(byteLength = 16) {
-  const bytes = new Uint8Array(byteLength);
-  crypto.getRandomValues(bytes);
-  return bytesToBase64(bytes);
-}
-
-async function legacySha256(text) {
+async function sha256(text) {
   const encoded = new TextEncoder().encode(text);
   const digest = await crypto.subtle.digest("SHA-256", encoded);
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function derivePinHash(pin, salt, iterations = PIN_PBKDF2_ITERATIONS) {
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(pin),
-    "PBKDF2",
-    false,
-    ["deriveBits"]
-  );
-
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      hash: "SHA-256",
-      salt: base64ToBytes(salt),
-      iterations
-    },
-    keyMaterial,
-    256
-  );
-
-  return bytesToBase64(bits);
-}
-
-function safeCompare(left, right) {
-  const a = String(left || "");
-  const b = String(right || "");
-  let diff = a.length ^ b.length;
-  const length = Math.max(a.length, b.length);
-  for (let i = 0; i < length; i += 1) {
-    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
-  }
-  return diff === 0;
-}
-
-function validateNewPin(pin) {
-  const value = String(pin || "");
-  const normalized = value.toLowerCase();
-
-  if (value.length < 6) return "Use at least 6 characters.";
-  if (/^(.)\1+$/.test(value)) return "Avoid repeated characters like 111111.";
-  if (["123456", "654321", "000000", "111111", "222222", "999999", "password", "qwerty"].includes(normalized)) {
-    return "That PIN is too easy to guess.";
-  }
-
-  const digitsOnly = /^\d+$/.test(value);
-  if (digitsOnly) {
-    const ascending = "01234567890123456789".includes(value);
-    const descending = "98765432109876543210".includes(value);
-    if (ascending || descending) return "Avoid simple number sequences.";
-  }
-
-  return "";
-}
-
-async function makeSecurityRecord(pin) {
-  const salt = randomBase64(16);
-  return {
-    version: 2,
-    algorithm: "PBKDF2-SHA256",
-    iterations: PIN_PBKDF2_ITERATIONS,
-    salt,
-    pinHash: await derivePinHash(pin, salt),
-    failedAttempts: 0,
-    lockedUntil: 0,
-    updatedAt: Date.now()
-  };
-}
-
-async function verifyPinAgainstSecurity(pin, security) {
-  if (security.salt && security.algorithm === "PBKDF2-SHA256") {
-    const derived = await derivePinHash(pin, security.salt, security.iterations || PIN_PBKDF2_ITERATIONS);
-    return safeCompare(derived, security.pinHash);
-  }
-
-  if (security.pinHash) {
-    const legacyHash = await legacySha256(pin);
-    return safeCompare(legacyHash, security.pinHash);
-  }
-
-  return false;
 }
 
 function maskAnswer(answer) {
@@ -165,26 +62,12 @@ function updateSummary(answers) {
   document.getElementById("answerCount").textContent = totalAnswers;
 }
 
-function setButtonLabel(buttonId, label) {
-  const button = document.getElementById(buttonId);
-  const span = button?.querySelector("span");
-  if (span) span.textContent = label;
-}
-
-function setButtonIcon(buttonId, svg) {
-  const button = document.getElementById(buttonId);
-  const currentSvg = button?.querySelector("svg");
-  if (!button || !currentSvg) return;
-  currentSvg.outerHTML = svg;
-}
-
 function setPinButtonText(security) {
-  setButtonLabel("pinButton", security.pinHash ? "Change PIN" : "Set PIN");
+  document.getElementById("pinButton").textContent = security.pinHash ? "Change PIN" : "Set PIN";
 }
 
 function setExpandButtonText() {
-  setButtonLabel("expandBtn", expandAllMode ? "Collapse all" : "Expand all");
-  setButtonIcon("expandBtn", expandAllMode ? COLLAPSE_SVG : EXPAND_SVG);
+  document.getElementById("expandBtn").textContent = expandAllMode ? "Collapse all" : "Expand all";
 }
 
 function openPinModal(mode) {
@@ -194,37 +77,32 @@ function openPinModal(mode) {
   const input = document.getElementById("pinInput");
   const confirm = document.getElementById("pinConfirmInput");
   const error = document.getElementById("modalError");
+  const submit = document.getElementById("pinSubmit");
 
   input.value = "";
   confirm.value = "";
   error.textContent = "";
 
   if (mode === "setup") {
-    title.textContent = "Set vault PIN";
-    sub.textContent = "Use 6+ characters. Avoid repeated or simple sequences.";
-    input.placeholder = "New PIN or passphrase";
+    title.textContent = "Set reveal PIN";
+    sub.textContent = "Used only inside Formly.";
+    input.placeholder = "New PIN";
     confirm.placeholder = "Confirm PIN";
     confirm.classList.remove("hidden");
-    setButtonLabel("pinSubmit", "Save PIN");
+    submit.textContent = "Save PIN";
   } else if (mode === "change") {
-    title.textContent = "Create new PIN";
-    sub.textContent = "Use 6+ characters. Your old PIN was verified first.";
-    input.placeholder = "New PIN or passphrase";
+    title.textContent = "New reveal PIN";
+    sub.textContent = "Choose a new Formly PIN.";
+    input.placeholder = "New PIN";
     confirm.placeholder = "Confirm PIN";
     confirm.classList.remove("hidden");
-    setButtonLabel("pinSubmit", "Update PIN");
-  } else if (mode === "current") {
-    title.textContent = "Verify current PIN";
-    sub.textContent = "Enter your current PIN before changing it.";
-    input.placeholder = "Current PIN";
-    confirm.classList.add("hidden");
-    setButtonLabel("pinSubmit", "Verify");
+    submit.textContent = "Update PIN";
   } else {
     title.textContent = "Reveal answer";
-    sub.textContent = "Enter your AnswerMate PIN.";
+    sub.textContent = "Enter your Formly PIN.";
     input.placeholder = "PIN";
     confirm.classList.add("hidden");
-    setButtonLabel("pinSubmit", "Continue");
+    submit.textContent = "Continue";
   }
 
   modal.classList.remove("hidden");
@@ -244,8 +122,8 @@ function closePinModal(result) {
 
 function getPinModalValue() {
   return {
-    pin: document.getElementById("pinInput").value,
-    confirmPin: document.getElementById("pinConfirmInput").value
+    pin: document.getElementById("pinInput").value.trim(),
+    confirmPin: document.getElementById("pinConfirmInput").value.trim()
   };
 }
 
@@ -262,10 +140,8 @@ async function setupPin(mode = "setup") {
   if (!result?.ok) return false;
 
   const { pin, confirmPin } = result;
-  const validationError = validateNewPin(pin);
-
-  if (validationError) {
-    await showModalErrorThenRetry(validationError);
+  if (pin.length < 4) {
+    await showModalErrorThenRetry("Use at least 4 characters.");
     return setupPin(mode);
   }
 
@@ -274,73 +150,38 @@ async function setupPin(mode = "setup") {
     return setupPin(mode);
   }
 
-  await saveSecurity(await makeSecurityRecord(pin));
+  await saveSecurity({
+    pinHash: await sha256(pin),
+    updatedAt: Date.now()
+  });
 
-  unlockUntil = Date.now() + PIN_UNLOCK_MS;
+  unlockUntil = Date.now() + 5 * 60 * 1000;
   setPinButtonText(await getSecurity());
   return true;
 }
 
-async function verifyPin(options = {}) {
-  const { force = false, mode = "verify" } = options;
-  let security = await getSecurity();
-
+async function verifyPin() {
+  const security = await getSecurity();
   if (!security.pinHash) return setupPin("setup");
-  if (!force && Date.now() < unlockUntil) return true;
+  if (Date.now() < unlockUntil) return true;
 
-  if (security.lockedUntil && Date.now() < security.lockedUntil) {
-    const seconds = Math.ceil((security.lockedUntil - Date.now()) / 1000);
-    await showModalErrorThenRetry(`Too many wrong attempts. Try again in ${seconds}s.`);
-    closePinModal({ ok: false });
-    return false;
-  }
-
-  const result = await openPinModal(mode);
+  const result = await openPinModal("verify");
   if (!result?.ok) return false;
 
-  const isValid = await verifyPinAgainstSecurity(result.pin, security);
-
-  if (!isValid) {
-    const failedAttempts = (security.failedAttempts || 0) + 1;
-    const lockedUntil = failedAttempts >= PIN_MAX_ATTEMPTS ? Date.now() + PIN_LOCK_MS : 0;
-
-    await saveSecurity({
-      ...security,
-      failedAttempts,
-      lockedUntil
-    });
-
-    if (lockedUntil) {
-      await showModalErrorThenRetry("Too many wrong attempts. Locked for 30 seconds.");
-      closePinModal({ ok: false });
-      return false;
-    }
-
-    await showModalErrorThenRetry(`Wrong PIN. ${PIN_MAX_ATTEMPTS - failedAttempts} attempt${PIN_MAX_ATTEMPTS - failedAttempts === 1 ? "" : "s"} left.`);
-    return verifyPin({ force: true, mode });
+  const enteredHash = await sha256(result.pin);
+  if (enteredHash !== security.pinHash) {
+    await showModalErrorThenRetry("Wrong PIN.");
+    return verifyPin();
   }
 
-  // If the user had an old SHA-256-only PIN, migrate it after a successful unlock.
-  if (!security.salt || security.algorithm !== "PBKDF2-SHA256") {
-    security = await makeSecurityRecord(result.pin);
-    await saveSecurity(security);
-  } else {
-    await saveSecurity({
-      ...security,
-      failedAttempts: 0,
-      lockedUntil: 0,
-      lastUnlockedAt: Date.now()
-    });
-  }
-
-  unlockUntil = Date.now() + PIN_UNLOCK_MS;
+  unlockUntil = Date.now() + 5 * 60 * 1000;
   return true;
 }
 
 async function changePin() {
   const security = await getSecurity();
   if (security.pinHash) {
-    const verified = await verifyPin({ force: true, mode: "current" });
+    const verified = await verifyPin();
     if (!verified) return;
   }
   await setupPin(security.pinHash ? "change" : "setup");
@@ -414,7 +255,7 @@ function makeAnswerCard(host, key, record) {
 
   // REVEAL BUTTON (SVG updated)
   const revealButton = document.createElement("button");
-  revealButton.className = "reveal-btn icon-btn";
+  revealButton.className = "reveal-btn";
   revealButton.type = "button";
   revealButton.innerHTML = EYE_SVG;
   revealButton.title = "Reveal";
@@ -429,7 +270,7 @@ function makeAnswerCard(host, key, record) {
 
   // COPY BUTTON (SVG updated)
   const copyButton = document.createElement("button");
-  copyButton.className = "ghost-btn icon-btn";
+  copyButton.className = "ghost-btn";
   copyButton.type = "button";
   copyButton.innerHTML = COPY_SVG;
   copyButton.title = "Copy";
@@ -445,7 +286,7 @@ function makeAnswerCard(host, key, record) {
 
   // DELETE BUTTON (SVG updated)
   const deleteButton = document.createElement("button");
-  deleteButton.className = "delete-btn icon-btn";
+  deleteButton.className = "delete-btn";
   deleteButton.type = "button";
   deleteButton.innerHTML = DELETE_SVG;
   deleteButton.title = "Delete";
@@ -580,7 +421,7 @@ document.getElementById("expandBtn").addEventListener("click", () => {
   render();
 });
 document.getElementById("deleteAll").addEventListener("click", async () => {
-  const confirmed = confirm("Delete all saved AnswerMate answers?");
+  const confirmed = confirm("Delete all saved Formly answers?");
   if (!confirmed) return;
   await saveAnswers({});
   render();
