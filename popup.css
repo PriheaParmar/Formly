@@ -1,16 +1,16 @@
 :root {
-  /* Matching Stark Black & Orange Palette */
+  /* Matching Stark Black & Purple Palette */
   --bg-base: #000000;
   --bg-surface: #0a0a0a;
   --bg-surface-hover: #141414;
   
   --border-subtle: #262626;
-  --border-focus: #ff7300;
+  --border-focus: #a855f7;
 
   --text-main: #f5f5f5;
   --text-muted: #8a8a8a;
   
-  --accent-primary: #ff7300;
+  --accent-primary: #a855f7;
   
   --radius-sm: 6px;
   --radius-md: 8px;

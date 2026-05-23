@@ -1,17 +1,17 @@
 :root {
-  /* Stark Black & Orange Palette */
+  /* Stark Black & Purple Palette */
   --bg-base: #000000;
   --bg-surface: #0a0a0a;
   --bg-surface-hover: #141414;
   
   --border-subtle: #262626;
-  --border-focus: #ff7300;
+  --border-focus: #a855f7;
 
   --text-main: #f5f5f5;
   --text-muted: #8a8a8a;
   
-  --accent-primary: #ff7300;
-  --accent-primary-hover: #e06500;
+  --accent-primary: #a855f7;
+  --accent-primary-hover: #9333ea;
   --accent-primary-text: #000000;
   
   --accent-danger: #ef4444;
@@ -95,10 +95,10 @@ input {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--accent-primary);
-  background: rgba(255, 115, 0, 0.1);
+  background: rgba(168, 85, 247, 0.12);
   padding: 3px 8px;
   border-radius: 99px;
-  border: 1px solid rgba(255, 115, 0, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.24);
 }
 
 .badge-icon {
@@ -447,8 +447,8 @@ input {
 .answer-box.masked {
   color: var(--accent-primary);
   letter-spacing: 0.2em;
-  background: rgba(255, 115, 0, 0.05);
-  border-color: rgba(255, 115, 0, 0.2);
+  background: rgba(168, 85, 247, 0.08);
+  border-color: rgba(168, 85, 247, 0.24);
 }
 
 .row-actions {

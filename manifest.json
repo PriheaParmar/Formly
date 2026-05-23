@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Formly",
-  "version": "0.7.0",
-  "description": "Formly saves repeated form answers and helps fill them next time, because retyping is exhausting.",
+  "version": "1.0.0",
+  "description": "Formly saves repeated form answers and matches random security questions by the actual question text.",
   "permissions": [
     "storage",
     "activeTab"

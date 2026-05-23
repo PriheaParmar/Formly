@@ -9,6 +9,7 @@
 
   const sessionIgnoredSaves = new Set();
   const fillOfferCooldown = new WeakMap();
+  const saveOfferTimers = new WeakMap();
   let currentBubble = null;
   let currentToast = null;
 
@@ -63,6 +64,70 @@
     return overlap / Math.max(left.size, right.size);
   }
 
+  function getNearbyIdentityText(field) {
+    const pieces = [
+      field.id,
+      field.getAttribute("name"),
+      field.getAttribute("placeholder"),
+      field.getAttribute("aria-label"),
+      field.getAttribute("autocomplete"),
+      field.getAttribute("title"),
+      field.getAttribute("data-testid"),
+      field.getAttribute("data-test"),
+      field.getAttribute("data-name")
+    ];
+
+    try {
+      Array.from(field.labels || []).forEach((label) => {
+        pieces.push(label.innerText || label.textContent || "");
+      });
+    } catch {}
+
+    let previous = field.previousElementSibling;
+    let attempts = 0;
+    while (previous && attempts < 4) {
+      pieces.push(previous.innerText || previous.textContent || "");
+      previous = previous.previousElementSibling;
+      attempts += 1;
+    }
+
+    let node = field.parentElement;
+    let depth = 0;
+    while (node && depth < 4 && node !== document.body) {
+      const clone = node.cloneNode(true);
+      clone.querySelectorAll("input, textarea, select, button, script, style, svg").forEach((el) => el.remove());
+      pieces.push(clone.innerText || clone.textContent || "");
+      node = node.parentElement;
+      depth += 1;
+    }
+
+    const form = field.closest("form");
+    pieces.push(form?.id, form?.getAttribute("name"), form?.getAttribute("action"));
+
+    return cleanText(pieces.filter(Boolean).join(" "), 1200);
+  }
+
+  function looksLikeSecurityAnswerField(field) {
+    const text = normalize(getNearbyIdentityText(field));
+    if (!text) return false;
+
+    const securitySignals = [
+      "security question",
+      "security answer",
+      "secret question",
+      "secret answer",
+      "challenge question",
+      "challenge answer",
+      "securityquestion",
+      "securityanswer"
+    ];
+
+    if (securitySignals.some((signal) => text.includes(signal))) return true;
+
+    const questionWords = ["what", "where", "which", "who", "when", "city", "town", "company", "school", "pet", "mother", "first job"];
+    return text.includes("question") && questionWords.some((word) => text.includes(word));
+  }
+
   function isAllowedField(field) {
     if (!field || !(field instanceof HTMLElement)) return false;
 
@@ -71,7 +136,6 @@
 
     const type = (field.getAttribute("type") || "text").toLowerCase();
     const blockedTypes = new Set([
-      "password",
       "hidden",
       "file",
       "submit",
@@ -90,6 +154,12 @@
     ]);
 
     if (blockedTypes.has(type)) return false;
+
+    // Real password fields stay blocked. Security-question answers are often coded
+    // as type="password", so Formly allows only those password-style fields when
+    // nearby text clearly says it is a security/challenge question.
+    if (type === "password" && !looksLikeSecurityAnswerField(field)) return false;
+
     if (field.disabled || field.readOnly) return false;
     if (field.closest('[aria-hidden="true"]')) return false;
 
@@ -148,8 +218,143 @@
     return "";
   }
 
+  function isVisibleNode(node) {
+    const element = node?.parentElement;
+    if (!element) return false;
+
+    const tag = element.tagName?.toLowerCase();
+    if (["script", "style", "noscript", "svg"].includes(tag)) return false;
+
+    const style = window.getComputedStyle(element);
+    if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+
+    return true;
+  }
+
+  function isGenericQuestionLabel(text) {
+    const value = normalize(text);
+    if (!value) return true;
+
+    const genericPatterns = [
+      /^security question ?\d*$/,
+      /^security question ?\d* required$/,
+      /^challenge question ?\d*$/,
+      /^secret question ?\d*$/,
+      /^security answer ?\d*$/,
+      /^answer ?\d*$/,
+      /^question ?\d*$/,
+      /^what s this$/,
+      /^whats this$/,
+      /^help$/,
+      /^required$/,
+      /^continue$/,
+      /^cancel$/
+    ];
+
+    return genericPatterns.some((pattern) => pattern.test(value));
+  }
+
+  function looksLikeActualQuestion(text) {
+    const cleaned = cleanText(text, 240);
+    const value = normalize(cleaned);
+    if (!value || isGenericQuestionLabel(value)) return false;
+
+    const starters = [
+      "what",
+      "where",
+      "which",
+      "who",
+      "when",
+      "how",
+      "in what",
+      "in which",
+      "name",
+      "enter"
+    ];
+
+    if (cleaned.includes("?")) return true;
+    return starters.some((starter) => value.startsWith(starter + " ") || value === starter);
+  }
+
+  function getNearbyQuestionByLayout(field) {
+    const fieldRect = field.getBoundingClientRect();
+    const candidates = [];
+
+    if (!fieldRect || fieldRect.width === 0 || fieldRect.height === 0) return "";
+
+    const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+    let node;
+
+    while ((node = walker.nextNode())) {
+      const raw = cleanText(node.textContent || "", 240);
+      if (!raw || raw.length < 2) continue;
+      if (!isVisibleNode(node)) continue;
+
+      const relation = node.compareDocumentPosition(field);
+      if (!(relation & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const rects = Array.from(range.getClientRects());
+      range.detach?.();
+
+      rects.forEach((rect) => {
+        if (!rect || rect.width === 0 || rect.height === 0) return;
+        const verticalDistance = fieldRect.top - rect.bottom;
+        if (verticalDistance < -4 || verticalDistance > 180) return;
+
+        const horizontalOverlap = Math.min(rect.right, fieldRect.right) - Math.max(rect.left, fieldRect.left);
+        const horizontallyClose = horizontalOverlap > 0 || Math.abs(rect.left - fieldRect.left) < 360;
+        if (!horizontallyClose) return;
+
+        candidates.push({
+          text: raw,
+          distance: Math.abs(verticalDistance),
+          isQuestion: looksLikeActualQuestion(raw),
+          isGeneric: isGenericQuestionLabel(raw)
+        });
+      });
+    }
+
+    const good = candidates
+      .filter((item) => !item.isGeneric)
+      .sort((a, b) => {
+        if (a.isQuestion !== b.isQuestion) return a.isQuestion ? -1 : 1;
+        return a.distance - b.distance;
+      });
+
+    return cleanText(good[0]?.text || "", 180);
+  }
+
+  function getSecurityQuestionText(field) {
+    const layoutQuestion = getNearbyQuestionByLayout(field);
+    if (looksLikeActualQuestion(layoutQuestion)) return layoutQuestion;
+
+    const ancestorText = getNearestTextFromAncestor(field);
+    if (ancestorText) {
+      const parts = ancestorText
+        .split(/(?<=[?])\s+|\n|\r| {2,}/)
+        .map((part) => cleanText(part, 180))
+        .filter(Boolean);
+
+      const actual = parts.find((part) => looksLikeActualQuestion(part));
+      if (actual) return actual;
+    }
+
+    return layoutQuestion;
+  }
+
   function getQuestionText(field) {
+    // Security-question pages often use generic labels like "Security Question 1"
+    // while the real random question is plain text above the input. Use the actual
+    // visible question sentence as the storage key so random slots still match.
+    if (looksLikeSecurityAnswerField(field)) {
+      const securityQuestion = getSecurityQuestionText(field);
+      if (securityQuestion && !isGenericQuestionLabel(securityQuestion)) return securityQuestion;
+    }
+
     const candidates = [
+      getNearbyQuestionByLayout(field),
       getLabelByFor(field),
       getLabelsText(field),
       cleanText(field.closest("label")?.innerText || ""),
@@ -161,7 +366,7 @@
       cleanText(field.id || "")
     ];
 
-    return candidates.find((text) => text && normalize(text).length >= 2) || "Unknown question";
+    return candidates.find((text) => text && normalize(text).length >= 2 && !isGenericQuestionLabel(text)) || "Unknown question";
   }
 
   function getFieldFingerprint(field) {
@@ -178,6 +383,8 @@
       labelByFor: getLabelByFor(field),
       labelsText: getLabelsText(field),
       previousText: getPreviousElementText(field),
+      layoutQuestion: getNearbyQuestionByLayout(field),
+      actualQuestion: getQuestionText(field),
       formId: cleanText(form?.id || "", 100),
       formName: cleanText(form?.getAttribute("name") || "", 100)
     };
@@ -438,6 +645,13 @@
 
     field.addEventListener("click", () => {
       maybeOfferFill(field);
+    });
+
+    field.addEventListener("input", () => {
+      if (!looksLikeSecurityAnswerField(field)) return;
+      clearTimeout(saveOfferTimers.get(field));
+      const timer = setTimeout(() => maybeOfferSave(field), 900);
+      saveOfferTimers.set(field, timer);
     });
 
     field.addEventListener("blur", () => {

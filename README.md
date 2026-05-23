@@ -1,56 +1,27 @@
-<div align="center">
+# Formly v1.0.0
 
-# 💜 Formly
-
-### Type once. Chill later.
-
-Formly remembers repeated form answers so you don’t have to type them again.
-
-![Version](https://img.shields.io/badge/v0.7.0-Formly-8B5CF6?style=for-the-badge)
-![Chrome](https://img.shields.io/badge/Chrome-Extension-A855F7?style=for-the-badge)
-![Local](https://img.shields.io/badge/Storage-Local-C084FC?style=for-the-badge)
-
-</div>
-
----
+Type once. Chill later.
 
 ## Install
 
-1. Unzip the file.
+1. Unzip this file.
 2. Open `chrome://extensions`.
 3. Turn on **Developer mode**.
 4. Click **Load unpacked**.
 5. Select `formly-extension`.
 
----
-
 ## Use
 
-Type an answer in a form field.  
-Click outside the field.  
-Choose **Save**.
+Type an answer, click outside the field, then choose **Save**.
 
 Next time, click the same field and choose **Fill**.
 
----
-
 ## Manage
 
-Open Formly → **Manage**
+Open Formly → **Manage**.
 
-You can search, reveal, copy, or delete saved answers.
+Search, reveal, copy, or delete saved answers.
 
----
+## Security questions
 
-## PIN
-
-Reveal and copy use your local Formly PIN.
-
----
-
-<div align="center">
-
-**Formly**  
-*for people too lazy to retype stuff.*
-
-</div>
+Formly saves security answers by the actual question text, not labels like `Security Question 1`.
